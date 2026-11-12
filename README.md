@@ -1,5 +1,7 @@
 # Launch Dashboard
 
+**▶ Try it online: [https://omri-n6gdp.github.io/launch-dashboard/](https://omri-n6gdp.github.io/launch-dashboard/)** (works on phones too)
+
 Upcoming rocket-launch schedule dashboard.
 
 ## How to use
