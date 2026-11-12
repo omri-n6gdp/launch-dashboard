@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Launch Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{--bg:#0a0c10;--card:#13161d;--line:#242832;--ink:#eef1f6;--muted:#8a93a3;--faint:#5a626f;
+    --accent:#ff7a1a;--go:#3ddc84;--hold:#ffcf4d;--tbd:#7a8699;--live:#ff4d5e;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px;margin:0 auto;padding:26px 22px 70px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px;margin-bottom:20px}
+  h1{font-weight:700;font-size:25px}h1 b{color:var(--accent)}
+  header p{color:var(--muted);font-size:13px;margin-top:4px}
+  .upd{font-family:'IBM Plex Mono';font-size:11.5px;color:var(--faint);text-align:right}
+  .refresh{border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;border-radius:9px;padding:9px 14px;font-family:inherit;font-size:13px;margin-top:6px}
+  .refresh:hover{border-color:var(--accent)}
+  .controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+  input,select{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 13px;color:var(--ink);font-family:inherit;font-size:14px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  #search{flex:1;min-width:200px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+  .card .img{height:150px;background-size:cover;background-position:center;position:relative;background-color:#0c0f15}
+  .card .img .status{position:absolute;top:10px;right:10px;font-size:10.5px;font-weight:700;letter-spacing:0.5px;padding:4px 10px;border-radius:20px;text-transform:uppercase}
+  .card .body{padding:15px 16px 16px;flex:1;display:flex;flex-direction:column}
+  .card .prov{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--accent);font-weight:600}
+  .card h3{font-size:17px;font-weight:600;margin:4px 0 3px;line-height:1.25}
+  .card .rocket{font-size:13px;color:var(--muted);font-family:'IBM Plex Mono'}
+  .card .pad{font-size:12px;color:var(--faint);margin-top:7px}
+  .cd{margin-top:auto;padding-top:14px;display:flex;gap:8px;justify-content:space-between}
+  .cd .seg{flex:1;text-align:center;background:#0b0e14;border:1px solid var(--line);border-radius:9px;padding:8px 4px}
+  .cd .seg .n{font-family:'IBM Plex Mono';font-size:21px;font-weight:600;color:var(--ink)}
+  .cd .seg .l{font-size:9px;letter-spacing:1px;color:var(--faint);text-transform:uppercase;margin-top:2px}
+  .cd.past .n{color:var(--faint)}
+  .net{font-size:12px;color:var(--muted);margin-top:10px;font-family:'IBM Plex Mono'}
+  .loading,.error{text-align:center;padding:60px 20px;color:var(--muted)}
+  .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .count{font-size:12px;color:var(--faint);margin-bottom:14px;font-family:'IBM Plex Mono'}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Launch <b>Dashboard</b></h1><p>Upcoming orbital launches with live countdowns · data: The Space Devs (Launch Library 2)</p></div>
+    <div><div class="upd" id="upd"></div><button class="refresh" id="refresh">↻ Refresh</button></div>
+  </header>
+  <div class="controls">
+    <input id="search" placeholder="Search mission or rocket…">
+    <select id="prov"><option value="">All providers</option></select>
+    <select id="statusF"><option value="">All statuses</option><option value="Go">Go</option><option value="TBD">TBD</option><option value="Hold">Hold</option></select>
+  </div>
+  <div class="count" id="count"></div>
+  <div id="content"><div class="loading"><div class="spinner"></div>Loading upcoming launches…</div></div>
+</div>
+
+<script>
+(function(){
+  const CACHE="launchdash.cache.v1", MAXAGE=30*60*1000;
+  let launches=[], q="", prov="", statusF="";
+  const $=id=>document.getElementById(id);
+
+  function statusColor(s){const a=(s||"").toLowerCase();
+    if(a.includes("go"))return"var(--go)";if(a.includes("hold")||a.includes("fail"))return"var(--hold)";
+    if(a.includes("success")||a.includes("in flight"))return"var(--live)";return"var(--tbd)";}
+
+  async function load(force){
+    const cached=JSON.parse(localStorage.getItem(CACHE)||"null");
+    if(!force&&cached&&Date.now()-cached.t<MAXAGE){launches=cached.data;render();stamp(cached.t,true);return;}
+    $("content").innerHTML='<div class="loading"><div class="spinner"></div>Fetching from Launch Library 2…</div>';
+    try{
+      const r=await fetch("https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=40&mode=detailed");
+      if(r.status===429)throw new Error("rate");
+      const d=await r.json();
+      launches=(d.results||[]).map(L=>({
+        name:L.name, net:L.net, status:L.status&&L.status.name,
+        prov:L.launch_service_provider&&L.launch_service_provider.name,
+        rocket:L.rocket&&L.rocket.configuration&&(L.rocket.configuration.full_name||L.rocket.configuration.name),
+        pad:L.pad&&L.pad.name, loc:L.pad&&L.pad.location&&L.pad.location.name,
+        img:L.image, orbit:L.mission&&L.mission.orbit&&L.mission.orbit.name, type:L.mission&&L.mission.type
+      }));
+      localStorage.setItem(CACHE,JSON.stringify({t:Date.now(),data:launches}));
+      buildProv();render();stamp(Date.now(),false);
+    }catch(e){
+      if(cached){launches=cached.data;buildProv();render();stamp(cached.t,true);
+        $("count").textContent+=" · live refresh blocked (rate-limited), showing cached";}
+      else $("content").innerHTML='<div class="error">Couldn\'t load launches.<br>The free API allows ~15 requests/hour — try again shortly.</div>';
+    }
+  }
+  function stamp(t,cached){$("upd").textContent=(cached?"cached · ":"updated · ")+new Date(t).toLocaleString();}
+  function buildProv(){const set=[...new Set(launches.map(l=>l.prov).filter(Boolean))].sort();
+    $("prov").innerHTML='<option value="">All providers</option>'+set.map(p=>`<option>${p}</option>`).join("");}
+
+  function render(){
+    let list=launches.filter(l=>{
+      const hay=((l.name||"")+" "+(l.rocket||"")).toLowerCase();
+      return (!q||hay.includes(q))&&(!prov||l.prov===prov)&&(!statusF||(l.status||"").includes(statusF));});
+    $("count").textContent=list.length+" launches";
+    if(!list.length){$("content").innerHTML='<div class="error">No launches match your filters.</div>';return;}
+    $("content").innerHTML='<div class="grid">'+list.map((l,i)=>{
+      const sc=statusColor(l.status);
+      return `<div class="card">
+        <div class="img" style="background-image:url('${l.img||""}')">
+          <span class="status" style="background:${sc};color:#0a0c10">${l.status||"TBD"}</span></div>
+        <div class="body">
+          <div class="prov">${l.prov||"—"}</div>
+          <h3>${l.name||"Unnamed"}</h3>
+          <div class="rocket">${l.rocket||""}${l.orbit?" · "+l.orbit:""}</div>
+          <div class="pad">${[l.pad,l.loc].filter(Boolean).join(" · ")}</div>
+          <div class="cd" data-net="${l.net||""}" data-i="${i}">
+            <div class="seg"><div class="n d">–</div><div class="l">days</div></div>
+            <div class="seg"><div class="n h">–</div><div class="l">hrs</div></div>
+            <div class="seg"><div class="n m">–</div><div class="l">min</div></div>
+            <div class="seg"><div class="n s">–</div><div class="l">sec</div></div>
+          </div>
+          <div class="net">NET ${l.net?new Date(l.net).toLocaleString():"to be determined"}</div>
+        </div></div>`;
+    }).join("")+'</div>';
+  }
+  function tick(){
+    document.querySelectorAll(".cd").forEach(cd=>{
+      const net=cd.dataset.net;if(!net)return;const diff=new Date(net)-Date.now();
+      const past=diff<0;const a=Math.abs(diff);
+      const d=Math.floor(a/86400000),h=Math.floor(a/3600000)%24,m=Math.floor(a/60000)%60,s=Math.floor(a/1000)%60;
+      cd.classList.toggle("past",past);
+      cd.querySelector(".d").textContent=(past?"T+":"")+d;cd.querySelector(".h").textContent=String(h).padStart(2,"0");
+      cd.querySelector(".m").textContent=String(m).padStart(2,"0");cd.querySelector(".s").textContent=String(s).padStart(2,"0");
+    });
+  }
+  $("search").addEventListener("input",e=>{q=e.target.value.toLowerCase();render();});
+  $("prov").addEventListener("change",e=>{prov=e.target.value;render();});
+  $("statusF").addEventListener("change",e=>{statusF=e.target.value;render();});
+  $("refresh").onclick=()=>load(true);
+  setInterval(tick,1000);
+  load(false);
+})();
+</script>
+</body>
+</html>
